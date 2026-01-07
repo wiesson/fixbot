@@ -21,6 +21,4 @@ export async function POST() {
   return NextResponse.redirect(new URL("/login", process.env.NEXT_PUBLIC_APP_URL));
 }
 
-export async function GET() {
-  return POST();
-}
+// Removed GET handler - logout should only happen via POST to prevent prefetch logout

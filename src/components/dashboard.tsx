@@ -53,12 +53,11 @@ export function Dashboard({ user }: DashboardProps) {
               </Avatar>
               <span className="text-sm font-medium hidden sm:inline">{user.name}</span>
             </div>
-            <Link
-              href="/api/auth/logout"
-              className={cn(buttonVariants({ variant: "ghost", size: "icon" }))}
-            >
-              <LogOut className="h-5 w-5" />
-            </Link>
+            <form action="/api/auth/logout" method="POST" className="inline">
+              <button type="submit" className={cn(buttonVariants({ variant: "ghost", size: "icon" }))}>
+                <LogOut className="h-5 w-5" />
+              </button>
+            </form>
           </div>
         </div>
       </header>
