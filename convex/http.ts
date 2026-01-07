@@ -1,0 +1,159 @@
+import { httpRouter } from "convex/server";
+import { httpAction } from "./_generated/server";
+import { internal } from "./_generated/api";
+
+const http = httpRouter();
+
+// ===========================================
+// SLACK EVENTS WEBHOOK
+// ===========================================
+
+http.route({
+  path: "/slack/events",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const body = await request.json();
+
+    // Slack URL Verification Challenge
+    if (body.type === "url_verification") {
+      return new Response(body.challenge, {
+        status: 200,
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+
+    // Verify Slack signature (in production, validate signing secret)
+    // const signature = request.headers.get("x-slack-signature");
+    // const timestamp = request.headers.get("x-slack-request-timestamp");
+
+    // Handle event callbacks
+    if (body.type === "event_callback") {
+      const event = body.event;
+      const teamId = body.team_id;
+
+      // Bot mention: @taskbot in a channel
+      if (event.type === "app_mention") {
+        await ctx.runAction(internal.slack.handleAppMention, {
+          teamId,
+          channelId: event.channel,
+          userId: event.user,
+          text: event.text,
+          ts: event.ts,
+          threadTs: event.thread_ts || event.ts,
+        });
+      }
+
+      // Message in thread (for follow-up/clarification)
+      if (
+        event.type === "message" &&
+        event.thread_ts &&
+        !event.bot_id // Ignore bot's own messages
+      ) {
+        await ctx.runAction(internal.slack.handleThreadReply, {
+          teamId,
+          channelId: event.channel,
+          userId: event.user,
+          text: event.text,
+          ts: event.ts,
+          threadTs: event.thread_ts,
+        });
+      }
+    }
+
+    return new Response("OK", { status: 200 });
+  }),
+});
+
+// ===========================================
+// SLACK OAUTH CALLBACK (for installing bot)
+// ===========================================
+
+http.route({
+  path: "/slack/oauth/callback",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const code = url.searchParams.get("code");
+    const error = url.searchParams.get("error");
+
+    if (error) {
+      return new Response(`Slack OAuth error: ${error}`, { status: 400 });
+    }
+
+    if (!code) {
+      return new Response("Missing code parameter", { status: 400 });
+    }
+
+    try {
+      // Exchange code for access token
+      const response = await fetch("https://slack.com/api/oauth.v2.access", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          client_id: process.env.SLACK_CLIENT_ID!,
+          client_secret: process.env.SLACK_CLIENT_SECRET!,
+          code,
+          redirect_uri: `${process.env.CONVEX_SITE_URL}/slack/oauth/callback`,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!data.ok) {
+        console.error("Slack OAuth error:", data);
+        return new Response(`Slack OAuth failed: ${data.error}`, {
+          status: 400,
+        });
+      }
+
+      // Create or update workspace with Slack credentials
+      await ctx.runMutation(internal.slack.createOrUpdateWorkspace, {
+        slackTeamId: data.team.id,
+        slackTeamName: data.team.name,
+        slackBotToken: data.access_token,
+        slackBotUserId: data.bot_user_id,
+      });
+
+      // Redirect to success page
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      return Response.redirect(`${appUrl}/workspaces/new?slack=connected`, 302);
+    } catch (error) {
+      console.error("Slack OAuth error:", error);
+      return new Response("OAuth failed", { status: 500 });
+    }
+  }),
+});
+
+// ===========================================
+// SLACK INTERACTIVITY (button clicks, modals)
+// ===========================================
+
+http.route({
+  path: "/slack/interactivity",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const formData = await request.formData();
+    const payload = JSON.parse(formData.get("payload") as string);
+
+    // Handle different interaction types
+    if (payload.type === "block_actions") {
+      const action = payload.actions[0];
+
+      // Task status update from Slack
+      if (action.action_id.startsWith("task_status_")) {
+        const [, , taskId, newStatus] = action.action_id.split("_");
+        await ctx.runMutation(internal.slack.updateTaskStatus, {
+          taskId,
+          status: newStatus,
+          slackUserId: payload.user.id,
+        });
+      }
+    }
+
+    return new Response("OK", { status: 200 });
+  }),
+});
+
+export default http;
