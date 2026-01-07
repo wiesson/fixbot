@@ -82,39 +82,38 @@ export function Dashboard({ user }: DashboardProps) {
           </p>
         </div>
 
-        {/* Workspaces Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {workspaces.map((workspace) => (
-            <Link key={workspace._id} href={`/w/${workspace.slug}`}>
-              <Card className="hover:border-emerald-500 transition-colors cursor-pointer">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">{workspace.name}</CardTitle>
-                    <Badge variant="secondary">{workspace.role}</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">
-                    /{workspace.slug}
-                  </p>
+        {workspaces.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {workspaces.map((workspace) => (
+              <Link key={workspace._id} href={`/w/${workspace.slug}`}>
+                <Card className="hover:border-emerald-500 transition-colors cursor-pointer">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg">{workspace.name}</CardTitle>
+                      <Badge variant="secondary">{workspace.role}</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      /{workspace.slug}
+                    </p>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+
+            {/* Create New Workspace */}
+            <Link href="/workspaces/new">
+              <Card className="hover:border-emerald-500 transition-colors cursor-pointer border-dashed">
+                <CardContent className="flex flex-col items-center justify-center h-full min-h-[140px] text-muted-foreground">
+                  <Plus className="h-8 w-8 mb-2" />
+                  <span className="text-sm font-medium">Create Workspace</span>
                 </CardContent>
               </Card>
             </Link>
-          ))}
-
-          {/* Create New Workspace */}
-          <Link href="/workspaces/new">
-            <Card className="hover:border-emerald-500 transition-colors cursor-pointer border-dashed">
-              <CardContent className="flex flex-col items-center justify-center h-full min-h-[140px] text-muted-foreground">
-                <Plus className="h-8 w-8 mb-2" />
-                <span className="text-sm font-medium">Create Workspace</span>
-              </CardContent>
-            </Card>
-          </Link>
-        </div>
-
-        {workspaces.length === 0 && (
-          <Card className="mt-8">
+          </div>
+        ) : (
+          <Card>
             <CardContent className="py-12 text-center">
               <h3 className="text-lg font-semibold mb-2">No workspaces yet</h3>
               <p className="text-muted-foreground mb-4">
