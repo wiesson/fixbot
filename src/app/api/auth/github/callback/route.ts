@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@convex/_generated/api";
-import { generateSessionToken, setSessionCookie } from "@/lib/auth";
+import { generateSessionToken } from "@/lib/auth";
 
 const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
@@ -101,11 +101,16 @@ export async function GET(request: NextRequest) {
       token: sessionToken,
     });
 
-    // Set session cookie
-    await setSessionCookie(sessionToken);
-
-    // Redirect to dashboard
-    return NextResponse.redirect(new URL("/", request.url));
+    // Redirect to dashboard with session cookie
+    const response = NextResponse.redirect(new URL("/", request.url));
+    response.cookies.set("herbot_session", sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      path: "/",
+    });
+    return response;
   } catch (error) {
     console.error("GitHub OAuth callback error:", error);
     return NextResponse.redirect(new URL("/login?error=callback_failed", request.url));
