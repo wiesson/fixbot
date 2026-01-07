@@ -166,7 +166,7 @@ http.route({
       // Extract task ID from PR body (TM-42, FIX-123, etc.)
       const taskIdMatch = body.match(/\*\*Task:\*\*\s*([A-Z]+-\d+)/);
       if (!taskIdMatch) {
-        // Not a PR created from Fixbot, ignore
+        // Not a PR created from Herbot, ignore
         return new Response("OK", { status: 200 });
       }
 

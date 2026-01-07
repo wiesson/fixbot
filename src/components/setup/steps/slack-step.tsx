@@ -42,7 +42,7 @@ export function SlackStep({ onSkip }: SlackStepProps) {
         </div>
         <CardTitle>Connect Slack</CardTitle>
         <CardDescription>
-          Add Fixbot to your Slack workspace to capture tasks from conversations
+          Add Herbot to your Slack workspace to capture tasks from conversations
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

@@ -183,7 +183,7 @@ export const createIssue = internalAction({
     if (!repository) {
       return {
         success: false,
-        error: "No repository linked. Use '@fixbot add repo github.com/owner/repo' first.",
+        error: "No repository linked. Use '@herbot add repo github.com/owner/repo' first.",
       };
     }
 
@@ -211,7 +211,7 @@ export const createIssue = internalAction({
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
             Accept: "application/vnd.github.v3+json",
-            "User-Agent": "Fixbot",
+            "User-Agent": "Herbot",
           },
           body: JSON.stringify({
             title: `[${task.displayId}] ${task.title}`,
@@ -299,7 +299,7 @@ export const linkRepositoryToProject = internalAction({
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/vnd.github.v3+json",
-          "User-Agent": "Fixbot",
+          "User-Agent": "Herbot",
         },
       });
 
@@ -593,7 +593,7 @@ interface TaskForIssue {
 function buildIssueBody(task: TaskForIssue): string {
   const sections: string[] = [];
 
-  sections.push(`## Issue from Fixbot\n`);
+  sections.push(`## Issue from Herbot\n`);
   sections.push(`**Task:** ${task.displayId}`);
   sections.push(`**Type:** ${task.taskType} | **Priority:** ${task.priority}`);
   if (task.source?.slackChannelName) {
@@ -635,7 +635,7 @@ function buildIssueBody(task: TaskForIssue): string {
   sections.push("");
 
   sections.push(`---`);
-  sections.push(`*Created by Fixbot from Slack*`);
+  sections.push(`*Created by Herbot from Slack*`);
 
   return sections.join("\n");
 }
@@ -649,7 +649,7 @@ function getLabelsForTask(task: { taskType: string; priority: string }): string[
   if (task.priority === "critical") labels.push("priority: critical");
   else if (task.priority === "high") labels.push("priority: high");
 
-  labels.push("fixbot");
+  labels.push("herbot");
 
   return labels;
 }

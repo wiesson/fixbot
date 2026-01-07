@@ -1,4 +1,4 @@
-# Fixbot Slack App Manifest
+# Herbot Slack App Manifest
 #
 # Quick Setup:
 # 1. Replace YOUR_CONVEX_URL with your Convex deployment URL (e.g., "helpful-horse-123")
@@ -7,17 +7,17 @@
 # 4. Copy Bot Token & Signing Secret to Convex dashboard env vars
 
 display_information:
-  name: Fixbot
+  name: Herbot
   description: AI-powered task extraction from Slack messages
   background_color: "#10B981"
   long_description: |
-    Fixbot automatically extracts tasks from Slack messages when you @mention it.
+    Herbot automatically extracts tasks from Slack messages when you @mention it.
     Tasks are prioritized, categorized, and added to your Kanban board.
     Integrates with Claude Code for automated fixes and PR creation.
 
 features:
   bot_user:
-    display_name: Fixbot
+    display_name: Herbot
     always_online: true
 
 oauth_config:

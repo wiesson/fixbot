@@ -234,7 +234,7 @@ export function SetupWizard({ user }: SetupWizardProps) {
             </div>
             <CardTitle>Setup Complete!</CardTitle>
             <CardDescription>
-              Fixbot is ready to help you manage tasks from Slack
+              Herbot is ready to help you manage tasks from Slack
             </CardDescription>
           </CardHeader>
           <CardContent>

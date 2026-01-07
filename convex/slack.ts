@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { fixbotAgent } from "./agents/taskExtractor";
+import { herbotAgent } from "./agents/taskExtractor";
 
 // ===========================================
 // EVENT DEDUPLICATION
@@ -394,7 +394,7 @@ export const handleAppMention = internalAction({
       await sendSlackMessage({
         channelId: args.channelId,
         threadTs: args.threadTs,
-        text: "How can I help? Try:\n• `@fixbot summarize` - See task summary\n• `@fixbot mark FIX-123 as done` - Update status\n• `@fixbot assign FIX-123 to @user` - Assign task\n• Or describe a bug/task to create one",
+        text: "How can I help? Try:\n• `@herbot summarize` - See task summary\n• `@herbot mark FIX-123 as done` - Update status\n• `@herbot assign FIX-123 to @user` - Assign task\n• Or describe a bug/task to create one",
       });
       return;
     }
@@ -419,9 +419,9 @@ export const handleAppMention = internalAction({
       }
     }
 
-    // Use the fixbot agent to handle everything
+    // Use the herbot agent to handle everything
     try {
-      const { threadId } = await fixbotAgent.createThread(ctx, {});
+      const { threadId } = await herbotAgent.createThread(ctx, {});
 
       // Build attachments info for context
       const attachmentsInfo =
@@ -443,7 +443,7 @@ User message: ${cleanText}
 Original text for task creation: ${cleanText}`;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await fixbotAgent.generateText(ctx, { threadId }, {
+      const result = await herbotAgent.generateText(ctx, { threadId }, {
         messages: [{ role: "user" as const, content: contextInfo }],
         maxSteps: 5,
       } as any);

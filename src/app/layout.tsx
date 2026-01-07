@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Fixbot - Task Agent",
+  title: "Herbot - Task Agent",
   description: "AI-powered task management with Claude Code integration",
 };
 

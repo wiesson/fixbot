@@ -60,7 +60,7 @@ export function ReposStep({ repos, isLoading, onComplete, onSkip }: ReposStepPro
         </div>
         <CardTitle>Connect Repositories</CardTitle>
         <CardDescription>
-          Select GitHub repositories to link with Fixbot for code context
+          Select GitHub repositories to link with Herbot for code context
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

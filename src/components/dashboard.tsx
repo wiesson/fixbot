@@ -37,7 +37,7 @@ export function Dashboard({ user }: DashboardProps) {
       <header className="border-b bg-white dark:bg-neutral-900">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold text-emerald-600">Fixbot</h1>
+            <h1 className="text-xl font-bold text-emerald-600">Herbot</h1>
           </div>
           <div className="flex items-center gap-4">
             <Link
@@ -106,7 +106,7 @@ export function Dashboard({ user }: DashboardProps) {
             <CardContent className="py-12 text-center">
               <h3 className="text-lg font-semibold mb-2">No workspaces yet</h3>
               <p className="text-muted-foreground mb-4">
-                Create your first workspace to start managing tasks with Fixbot.
+                Create your first workspace to start managing tasks with Herbot.
               </p>
               <Link href="/workspaces/new" className={cn(buttonVariants())}>
                 <Plus className="mr-2 h-4 w-4" />
