@@ -82,7 +82,7 @@ export const getMembers = query({
       })
     );
 
-    return members.filter(Boolean);
+    return members.filter((m): m is NonNullable<typeof m> => m !== null);
   },
 });
 
