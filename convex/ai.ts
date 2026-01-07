@@ -183,6 +183,7 @@ function fallbackExtraction(text: string): TaskExtraction {
     priority,
     taskType,
     confidence: 0.5,
+    usedAi: false,
     ...(filePaths.length > 0 ? { codeContext: { filePaths } } : {}),
   };
 }
