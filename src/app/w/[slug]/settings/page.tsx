@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useRouter } from "next/navigation";
@@ -30,10 +30,20 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { ArrowLeft, Slack, Trash2, UserMinus } from "lucide-react";
+import { ArrowLeft, Slack, Trash2, UserMinus, Lock, Globe, Plus, FolderGit2 } from "lucide-react";
 import type { Id } from "@convex/_generated/dataModel";
+import { RepoSelector, type Repo } from "@/components/repo-selector";
 
 interface WorkspaceSettingsPageProps {
   params: Promise<{ slug: string }>;
@@ -53,6 +63,12 @@ export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageP
   const [defaultPriority, setDefaultPriority] = useState<Priority | "">("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
+  // Repository state
+  const [addRepoDialogOpen, setAddRepoDialogOpen] = useState(false);
+  const [availableRepos, setAvailableRepos] = useState<Repo[]>([]);
+  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
+  const [selectedRepoIds, setSelectedRepoIds] = useState<Set<number>>(new Set());
+
   // Queries
   const workspace = useQuery(api.workspaces.getBySlug, { slug });
   const members = useQuery(
@@ -63,12 +79,22 @@ export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageP
     api.workspaces.getUserMembership,
     workspace && user ? { workspaceId: workspace._id, userId: user._id } : "skip"
   );
+  const repositories = useQuery(
+    api.repositories.list,
+    workspace ? { workspaceId: workspace._id } : "skip"
+  );
 
   // Mutations
   const updateWorkspace = useMutation(api.workspaces.update);
   const updateMemberRole = useMutation(api.workspaces.updateMemberRole);
   const removeMember = useMutation(api.workspaces.removeMember);
   const deleteWorkspace = useMutation(api.workspaces.deleteWorkspace);
+  const updateRepository = useMutation(api.repositories.update);
+  const removeRepository = useMutation(api.repositories.remove);
+  const connectRepos = useMutation(api.github.connectRepos);
+
+  // Actions
+  const listUserRepos = useAction(api.github.listUserRepos);
 
   // Derived state
   const isAdmin = userMembership?.role === "admin";
@@ -153,6 +179,67 @@ export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageP
       await deleteWorkspace({ id: workspace._id });
       router.push("/");
     }
+  };
+
+  // Repository handlers
+  const handleOpenAddRepoDialog = async () => {
+    if (!user) return;
+    setAddRepoDialogOpen(true);
+    setIsLoadingRepos(true);
+    setSelectedRepoIds(new Set());
+    try {
+      const repos = await listUserRepos({ userId: user._id });
+      setAvailableRepos(repos);
+    } catch (error) {
+      console.error("Error fetching repos:", error);
+      setAvailableRepos([]);
+    } finally {
+      setIsLoadingRepos(false);
+    }
+  };
+
+  const handleToggleRepo = (id: number) => {
+    const newSelected = new Set(selectedRepoIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedRepoIds(newSelected);
+  };
+
+  const handleConnectRepos = async () => {
+    if (!workspace) return;
+    const selectedRepos = availableRepos
+      .filter((r) => selectedRepoIds.has(r.githubId))
+      .map((r) => ({
+        githubId: r.githubId,
+        githubNodeId: r.githubNodeId,
+        name: r.name,
+        fullName: r.fullName,
+        cloneUrl: r.cloneUrl,
+        defaultBranch: r.defaultBranch,
+      }));
+    if (selectedRepos.length > 0) {
+      await connectRepos({ workspaceId: workspace._id, repos: selectedRepos });
+    }
+    setAddRepoDialogOpen(false);
+    setSelectedRepoIds(new Set());
+  };
+
+  const handleUpdateRepoSettings = async (
+    repoId: Id<"repositories">,
+    settings: {
+      claudeCodeEnabled: boolean;
+      autoCreateBranches: boolean;
+      branchPrefix?: string;
+    }
+  ) => {
+    await updateRepository({ id: repoId, settings });
+  };
+
+  const handleRemoveRepository = async (repoId: Id<"repositories">) => {
+    await removeRepository({ id: repoId });
   };
 
   // Loading state
@@ -352,6 +439,148 @@ export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageP
                 );
               })}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Repositories Section */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Repositories</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {repositories && repositories.length > 0 ? (
+              <div className="space-y-4">
+                {repositories.map((repo) => (
+                  <div
+                    key={repo._id}
+                    className="flex flex-col gap-4 p-4 rounded-lg border border-border"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <FolderGit2 className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">{repo.fullName}</span>
+                        {repo.githubId && (
+                          <span className="text-muted-foreground">
+                            {/* Repos from settings don't have isPrivate, check via GitHub metadata */}
+                          </span>
+                        )}
+                      </div>
+                      <AlertDialog>
+                        <AlertDialogTrigger
+                          render={<Button variant="ghost" size="icon-sm" />}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Remove repository?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to remove {repo.fullName} from this
+                              workspace? This will not delete the repository from GitHub.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleRemoveRepository(repo._id)}
+                            >
+                              Remove
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm">Claude Code enabled</Label>
+                        <Switch
+                          checked={repo.settings?.claudeCodeEnabled ?? true}
+                          onCheckedChange={(checked) =>
+                            handleUpdateRepoSettings(repo._id, {
+                              claudeCodeEnabled: checked,
+                              autoCreateBranches: repo.settings?.autoCreateBranches ?? true,
+                              branchPrefix: repo.settings?.branchPrefix,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm">Auto-create branches</Label>
+                        <Switch
+                          checked={repo.settings?.autoCreateBranches ?? true}
+                          onCheckedChange={(checked) =>
+                            handleUpdateRepoSettings(repo._id, {
+                              claudeCodeEnabled: repo.settings?.claudeCodeEnabled ?? true,
+                              autoCreateBranches: checked,
+                              branchPrefix: repo.settings?.branchPrefix,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-sm">Branch prefix</Label>
+                      <Input
+                        placeholder="e.g., feature/"
+                        value={repo.settings?.branchPrefix ?? ""}
+                        onChange={(e) =>
+                          handleUpdateRepoSettings(repo._id, {
+                            claudeCodeEnabled: repo.settings?.claudeCodeEnabled ?? true,
+                            autoCreateBranches: repo.settings?.autoCreateBranches ?? true,
+                            branchPrefix: e.target.value || undefined,
+                          })
+                        }
+                        className="max-w-[200px]"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <FolderGit2 className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>No repositories connected</p>
+                <p className="text-sm">Connect a GitHub repository to get started</p>
+              </div>
+            )}
+
+            <Dialog open={addRepoDialogOpen} onOpenChange={setAddRepoDialogOpen}>
+              <DialogTrigger
+                render={<Button variant="outline" onClick={handleOpenAddRepoDialog} />}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Repository
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add Repository</DialogTitle>
+                  <DialogDescription>
+                    Select GitHub repositories to connect to this workspace
+                  </DialogDescription>
+                </DialogHeader>
+                <RepoSelector
+                  repos={availableRepos}
+                  selectedIds={selectedRepoIds}
+                  onToggle={handleToggleRepo}
+                  alreadyConnectedIds={
+                    new Set(repositories?.map((r) => r.githubId) ?? [])
+                  }
+                  isLoading={isLoadingRepos}
+                />
+                <DialogFooter>
+                  <Button
+                    onClick={handleConnectRepos}
+                    disabled={selectedRepoIds.size === 0}
+                  >
+                    {selectedRepoIds.size > 0
+                      ? `Connect (${selectedRepoIds.size})`
+                      : "Connect"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </CardContent>
         </Card>
 
