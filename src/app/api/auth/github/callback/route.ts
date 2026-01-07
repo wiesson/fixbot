@@ -101,6 +101,17 @@ export async function GET(request: NextRequest) {
       token: sessionToken,
     });
 
+    // Auto-accept any pending invitations for this GitHub user
+    try {
+      await convex.mutation(api.invitations.acceptByGithubUsername, {
+        githubUsername: githubUser.login,
+        userId,
+      });
+    } catch (err) {
+      // Non-fatal: log but don't fail login
+      console.error("Failed to auto-accept invitations:", err);
+    }
+
     // Redirect to dashboard with session cookie
     const response = NextResponse.redirect(new URL("/", request.url));
     response.cookies.set("norbot_session", sessionToken, {

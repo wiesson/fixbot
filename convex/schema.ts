@@ -171,6 +171,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_github_id", ["githubId"])
+    .index("by_github_username", ["githubUsername"])
     .index("by_email", ["email"])
     .index("by_slack_user_id", ["slackUserId"]),
 
@@ -190,6 +191,32 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_user", ["userId"])
     .index("by_workspace_and_user", ["workspaceId", "userId"]),
+
+  // ===========================================
+  // WORKSPACE INVITATIONS
+  // ===========================================
+
+  workspaceInvitations: defineTable({
+    workspaceId: v.id("workspaces"),
+    githubUsername: v.string(),
+    role: v.union(v.literal("admin"), v.literal("member"), v.literal("viewer")),
+    invitedById: v.id("users"),
+    token: v.string(),
+    expiresAt: v.number(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("expired"),
+      v.literal("cancelled")
+    ),
+    acceptedAt: v.optional(v.number()),
+    acceptedByUserId: v.optional(v.id("users")),
+    createdAt: v.number(),
+  })
+    .index("by_token", ["token"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_and_status", ["workspaceId", "status"])
+    .index("by_github_username", ["githubUsername"]),
 
   // ===========================================
   // TASKS

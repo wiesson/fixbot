@@ -41,7 +41,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { ArrowLeft, Slack, Trash2, UserMinus, Lock, Globe, Plus, FolderGit2 } from "lucide-react";
+import { ArrowLeft, Slack, Trash2, UserMinus, Lock, Globe, Plus, FolderGit2, UserPlus, Hash } from "lucide-react";
 import type { Id } from "@convex/_generated/dataModel";
 import { RepoSelector, type Repo } from "@/components/repo-selector";
 
@@ -83,6 +83,10 @@ export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageP
     api.repositories.list,
     workspace ? { workspaceId: workspace._id } : "skip"
   );
+  const channelMappings = useQuery(
+    api.channelMappings.list,
+    workspace ? { workspaceId: workspace._id } : "skip"
+  );
 
   // Mutations
   const updateWorkspace = useMutation(api.workspaces.update);
@@ -92,6 +96,7 @@ export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageP
   const updateRepository = useMutation(api.repositories.update);
   const removeRepository = useMutation(api.repositories.remove);
   const connectRepos = useMutation(api.github.connectRepos);
+  const updateChannelMapping = useMutation(api.channelMappings.update);
 
   // Actions
   const listUserRepos = useAction(api.github.listUserRepos);
@@ -242,6 +247,16 @@ export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageP
     await removeRepository({ id: repoId });
   };
 
+  const handleChannelRepoChange = async (
+    mappingId: Id<"channelMappings">,
+    repoId: string
+  ) => {
+    await updateChannelMapping({
+      id: mappingId,
+      repositoryId: repoId === "none" ? undefined : (repoId as Id<"repositories">),
+    });
+  };
+
   // Loading state
   if (authLoading || !workspace) {
     return (
@@ -351,10 +366,66 @@ export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageP
           </CardContent>
         </Card>
 
-        {/* Members Section */}
+        {/* Slack Channels Section */}
         <Card className="mb-6">
           <CardHeader>
+            <CardTitle>Slack Channels</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {channelMappings && channelMappings.length > 0 ? (
+              <div className="space-y-3">
+                {channelMappings.map((mapping) => (
+                  <div
+                    key={mapping._id}
+                    className="flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Hash className="h-4 w-4 text-muted-foreground" />
+                      <span>{mapping.slackChannelName}</span>
+                    </div>
+                    <Select
+                      value={mapping.repositoryId ?? "none"}
+                      onValueChange={(value) => {
+                        if (value) handleChannelRepoChange(mapping._id, value);
+                      }}
+                    >
+                      <SelectTrigger className="w-[200px]">
+                        <SelectValue>
+                          {mapping.repository?.fullName ?? "No repository"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No repository</SelectItem>
+                        {repositories?.map((repo) => (
+                          <SelectItem key={repo._id} value={repo._id}>
+                            {repo.fullName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                No Slack channels configured yet
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Members Section */}
+        <Card className="mb-6">
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Members</CardTitle>
+            {isAdmin && (
+              <Link href={`/w/${slug}/invite`}>
+                <Button variant="outline" size="sm">
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Invite
+                </Button>
+              </Link>
+            )}
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
