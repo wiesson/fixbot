@@ -13,7 +13,11 @@ export default function Home() {
     if (!isLoading && !isAuthenticated) {
       router.push("/login");
     }
-  }, [isLoading, isAuthenticated, router]);
+    // Redirect to setup if onboarding not complete
+    if (!isLoading && user && !user.onboarding?.completedAt) {
+      router.push("/setup");
+    }
+  }, [isLoading, isAuthenticated, user, router]);
 
   if (isLoading) {
     return (

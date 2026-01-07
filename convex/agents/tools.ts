@@ -177,6 +177,24 @@ export const createTaskTool = createTool({
     slackMessageTs: z.string().describe("The Slack message timestamp"),
     slackThreadTs: z.string().describe("The Slack thread timestamp"),
     originalText: z.string().describe("The original user message"),
+    url: z
+      .string()
+      .optional()
+      .describe(
+        "URL where the bug or issue occurs. Required for bug and improvement task types if detected in the message."
+      ),
+    attachments: z
+      .array(
+        z.object({
+          storageId: z.string(),
+          filename: z.string(),
+          mimeType: z.string(),
+          size: z.number(),
+          slackFileId: z.string(),
+        })
+      )
+      .optional()
+      .describe("File attachments from the Slack message (already downloaded to Convex storage)"),
   }),
   handler: async (ctx, args): Promise<CreateTaskResult> => {
     const result = await ctx.runMutation(internal.tools.createTask, {
@@ -191,6 +209,11 @@ export const createTaskTool = createTool({
       slackMessageTs: args.slackMessageTs,
       slackThreadTs: args.slackThreadTs,
       originalText: args.originalText,
+      url: args.url,
+      attachments: args.attachments?.map((a) => ({
+        ...a,
+        storageId: a.storageId as Id<"_storage">,
+      })),
     });
     return result;
   },

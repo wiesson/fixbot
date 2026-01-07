@@ -33,6 +33,21 @@ http.route({
 
       // Bot mention: @taskbot in a channel
       if (event.type === "app_mention") {
+        // Extract file attachments if present
+        const files = event.files?.map((f: {
+          id: string;
+          name: string;
+          mimetype: string;
+          size: number;
+          url_private: string;
+        }) => ({
+          id: f.id,
+          name: f.name,
+          mimetype: f.mimetype,
+          size: f.size,
+          url_private: f.url_private,
+        }));
+
         // Schedule async processing to avoid Slack timeout
         await ctx.scheduler.runAfter(0, internal.slack.handleAppMention, {
           teamId,
@@ -41,6 +56,7 @@ http.route({
           text: event.text,
           ts: event.ts,
           threadTs: event.thread_ts || event.ts,
+          files,
         });
       }
 

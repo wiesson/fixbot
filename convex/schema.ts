@@ -241,6 +241,7 @@ export default defineSchema({
     // Code Context (for Claude Code)
     codeContext: v.optional(
       v.object({
+        url: v.optional(v.string()), // URL where the bug/issue occurs
         filePaths: v.optional(v.array(v.string())),
         errorMessage: v.optional(v.string()),
         stackTrace: v.optional(v.string()),
@@ -249,6 +250,19 @@ export default defineSchema({
         branch: v.optional(v.string()),
         commitSha: v.optional(v.string()),
       })
+    ),
+
+    // Attachments (files/images from Slack)
+    attachments: v.optional(
+      v.array(
+        v.object({
+          storageId: v.id("_storage"), // Convex file storage ID
+          filename: v.string(),
+          mimeType: v.string(),
+          size: v.number(),
+          slackFileId: v.string(),
+        })
+      )
     ),
 
     // AI Extraction Metadata

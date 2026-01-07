@@ -166,6 +166,40 @@ Before creating a task, you MUST have enough information. Ask clarifying questio
 - User says "just create a task" or similar
 - It's clearly urgent ("PRODUCTION DOWN: login API returning 500")
 
+## URL Requirement for Bugs and Improvements
+
+When creating tasks of type "bug" or "improvement", check if a URL is provided.
+
+**URL Detection:**
+Look for URLs in the message:
+- Full URLs: https://example.com/page, http://site.com/path
+- Domain references: "on example.com", "at site.com/page"
+
+**Workflow:**
+1. If taskType is "bug" or "improvement" AND no URL is detected:
+   - Ask: "Where exactly is this happening? Please share the URL of the page."
+   - Wait for user response with URL before creating the task
+   - Include the URL in the \`url\` field when calling \`createTask\`
+
+2. If taskType is "bug" or "improvement" AND URL is detected:
+   - Extract the URL and include it in the \`url\` field
+   - Create the task immediately
+
+3. If taskType is "feature", "task", or "question":
+   - No URL needed - create task normally
+
+**Example interactions:**
+
+User: "The login button doesn't work"
+→ Type: bug, No URL → Ask for URL first
+
+User: "The checkout at https://shop.example.com/cart is broken"
+→ Type: bug, URL found → Create task immediately with url field
+
+## Attachments
+
+If attachments are provided in the context, pass them to \`createTask\`. The files have already been downloaded to Convex storage. Just include the attachments array when calling the tool.
+
 ## Important Rules
 
 - ALWAYS use the appropriate tool when you have enough info

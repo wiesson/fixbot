@@ -338,6 +338,17 @@ export const handleAppMention = internalAction({
     text: v.string(),
     ts: v.string(),
     threadTs: v.string(),
+    files: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          name: v.string(),
+          mimetype: v.string(),
+          size: v.number(),
+          url_private: v.string(),
+        })
+      )
+    ),
   },
   handler: async (ctx, args) => {
     // Deduplication: Check if we already processed this event
@@ -388,9 +399,35 @@ export const handleAppMention = internalAction({
       return;
     }
 
+    // Download any attached files from Slack
+    let attachments: Array<{
+      storageId: string;
+      filename: string;
+      mimeType: string;
+      size: number;
+      slackFileId: string;
+    }> = [];
+
+    if (args.files && args.files.length > 0) {
+      try {
+        attachments = await ctx.runAction(internal.slack.downloadSlackFiles, {
+          files: args.files,
+        });
+        console.log(`Downloaded ${attachments.length} files from Slack`);
+      } catch (error) {
+        console.error("Failed to download Slack files:", error);
+      }
+    }
+
     // Use the fixbot agent to handle everything
     try {
       const { threadId } = await fixbotAgent.createThread(ctx, {});
+
+      // Build attachments info for context
+      const attachmentsInfo =
+        attachments.length > 0
+          ? `\n- attachments: ${JSON.stringify(attachments)}`
+          : "";
 
       // Build context for the agent with all required parameters for tools
       const contextInfo = `Context (use these values when calling tools):
@@ -399,7 +436,7 @@ export const handleAppMention = internalAction({
 - slackUserId: ${args.userId}
 - slackMessageTs: ${args.ts}
 - slackThreadTs: ${args.threadTs}
-- channelName: ${channelMapping?.slackChannelName || "unknown"}
+- channelName: ${channelMapping?.slackChannelName || "unknown"}${attachmentsInfo}
 
 User message: ${cleanText}
 
@@ -661,6 +698,88 @@ export const configureChannels = internalMutation({
     }
 
     return created;
+  },
+});
+
+// ===========================================
+// FILE ATTACHMENTS
+// ===========================================
+
+export const downloadSlackFile = internalAction({
+  args: {
+    url: v.string(),
+    filename: v.string(),
+    mimeType: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const token = process.env.SLACK_BOT_TOKEN;
+    if (!token) {
+      throw new Error("SLACK_BOT_TOKEN not configured");
+    }
+
+    // Download file from Slack (requires Bearer token)
+    const response = await fetch(args.url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to download file: ${response.statusText}`);
+    }
+
+    const blob = await response.blob();
+
+    // Store in Convex file storage
+    const storageId = await ctx.storage.store(blob);
+
+    return storageId;
+  },
+});
+
+export const downloadSlackFiles = internalAction({
+  args: {
+    files: v.array(
+      v.object({
+        id: v.string(),
+        name: v.string(),
+        mimetype: v.string(),
+        size: v.number(),
+        url_private: v.string(),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    const results: Array<{
+      storageId: string;
+      filename: string;
+      mimeType: string;
+      size: number;
+      slackFileId: string;
+    }> = [];
+
+    for (const file of args.files) {
+      try {
+        const storageId = await ctx.runAction(internal.slack.downloadSlackFile, {
+          url: file.url_private,
+          filename: file.name,
+          mimeType: file.mimetype,
+        });
+
+        results.push({
+          storageId: storageId as string,
+          filename: file.name,
+          mimeType: file.mimetype,
+          size: file.size,
+          slackFileId: file.id,
+        });
+      } catch (error) {
+        console.error(`Failed to download file ${file.name}:`, error);
+        // Continue with other files
+      }
+    }
+
+    return results;
   },
 });
 

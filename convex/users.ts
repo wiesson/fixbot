@@ -221,3 +221,37 @@ export const updatePreferences = mutation({
     });
   },
 });
+
+export const updateOnboarding = mutation({
+  args: {
+    userId: v.id("users"),
+    onboarding: v.object({
+      completedAt: v.optional(v.number()),
+      skippedSteps: v.array(v.string()),
+      currentStep: v.optional(v.string()),
+    }),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, {
+      onboarding: args.onboarding,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const completeOnboarding = mutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (!user) throw new Error("User not found");
+
+    await ctx.db.patch(args.userId, {
+      onboarding: {
+        completedAt: Date.now(),
+        skippedSteps: user.onboarding?.skippedSteps ?? [],
+        currentStep: undefined,
+      },
+      updatedAt: Date.now(),
+    });
+  },
+});

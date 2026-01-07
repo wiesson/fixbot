@@ -282,6 +282,20 @@ export const createTask = internalMutation({
     slackMessageTs: v.string(),
     slackThreadTs: v.string(),
     originalText: v.string(),
+    // Optional URL where the bug/issue occurs
+    url: v.optional(v.string()),
+    // Optional file attachments (already downloaded to Convex storage)
+    attachments: v.optional(
+      v.array(
+        v.object({
+          storageId: v.id("_storage"),
+          filename: v.string(),
+          mimeType: v.string(),
+          size: v.number(),
+          slackFileId: v.string(),
+        })
+      )
+    ),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -372,6 +386,10 @@ export const createTask = internalMutation({
         slackMessageTs: args.slackMessageTs,
         slackThreadTs: args.slackThreadTs,
       },
+      // Include URL in codeContext if provided
+      codeContext: args.url ? { url: args.url } : undefined,
+      // Include attachments if provided
+      attachments: args.attachments,
       aiExtraction: {
         extractedAt: now,
         model: "gemini-3-pro-preview",
