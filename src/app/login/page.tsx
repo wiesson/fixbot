@@ -1,10 +1,6 @@
-"use client";
-
-import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
 import { Github } from "lucide-react";
-import Link from "next/link";
 
 export default function LoginPage() {
   return (
@@ -15,10 +11,12 @@ export default function LoginPage() {
           <CardDescription>AI-powered task management with Claude Code integration</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Link href="/api/auth/github" prefetch={false} className={cn(buttonVariants({ size: "lg" }), "w-full")}>
-            <Github className="mr-2 h-5 w-5" />
-            Continue with GitHub
-          </Link>
+          <form action="/api/auth/github" method="POST">
+            <Button type="submit" size="lg" className="w-full">
+              <Github className="mr-2 h-5 w-5" />
+              Continue with GitHub
+            </Button>
+          </form>
           <p className="text-xs text-center text-muted-foreground">
             By continuing, you agree to our Terms of Service and Privacy Policy
           </p>
