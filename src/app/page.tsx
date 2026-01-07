@@ -1,34 +1,26 @@
-"use client";
-
-import { useAuth } from "@/hooks/use-auth";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { redirect } from "next/navigation";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@convex/_generated/api";
+import { getSessionToken } from "@/lib/auth";
 import { Dashboard } from "@/components/dashboard";
 
-export default function Home() {
-  const { user, isLoading, isAuthenticated } = useAuth();
-  const router = useRouter();
+const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push("/login");
-    }
-    // Redirect to setup if onboarding not complete
-    if (!isLoading && user && !user.onboarding?.completedAt) {
-      router.push("/setup");
-    }
-  }, [isLoading, isAuthenticated, user, router]);
+export default async function Home() {
+  const token = await getSessionToken();
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-pulse text-muted-foreground">Loading...</div>
-      </div>
-    );
+  if (!token) {
+    redirect("/login");
   }
 
+  const user = await convex.query(api.users.me, { sessionToken: token });
+
   if (!user) {
-    return null;
+    redirect("/login");
+  }
+
+  if (!user.onboarding?.completedAt) {
+    redirect("/setup");
   }
 
   return <Dashboard user={user} />;
