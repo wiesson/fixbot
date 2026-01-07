@@ -35,6 +35,36 @@ export default defineSchema({
     .index("by_slug", ["slug"]),
 
   // ===========================================
+  // PROJECTS (logical groupings within workspace)
+  // ===========================================
+
+  projects: defineTable({
+    workspaceId: v.id("workspaces"),
+
+    // Identity
+    shortCode: v.string(), // "TM", "ACME" - used in task IDs like TM-123
+    name: v.string(), // "TakeMemories"
+    domain: v.optional(v.string()), // "takememories.com" - for auto-detection
+    description: v.optional(v.string()),
+
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_and_code", ["workspaceId", "shortCode"]),
+
+  // ===========================================
+  // PROJECT COUNTERS (for per-project task numbering)
+  // ===========================================
+
+  projectCounters: defineTable({
+    projectId: v.id("projects"),
+    counterType: v.literal("task_number"),
+    currentValue: v.number(),
+  }).index("by_project_and_type", ["projectId", "counterType"]),
+
+  // ===========================================
   // REPOSITORIES (GitHub repos linked to workspace)
   // ===========================================
 
@@ -153,10 +183,11 @@ export default defineSchema({
   tasks: defineTable({
     workspaceId: v.id("workspaces"),
     repositoryId: v.optional(v.id("repositories")),
+    projectId: v.optional(v.id("projects")), // Optional project grouping
 
     // Task Identity
     taskNumber: v.number(),
-    displayId: v.string(), // e.g., "FIX-123"
+    displayId: v.string(), // e.g., "TM-123" or "FIX-123"
 
     // Content
     title: v.string(),
@@ -260,6 +291,8 @@ export default defineSchema({
     .index("by_workspace_and_status", ["workspaceId", "status"])
     .index("by_repository", ["repositoryId"])
     .index("by_repository_and_status", ["repositoryId", "status"])
+    .index("by_project", ["projectId"])
+    .index("by_project_and_status", ["projectId", "status"])
     .index("by_assignee", ["assigneeId"])
     .index("by_display_id", ["displayId"]),
 
@@ -354,4 +387,14 @@ export default defineSchema({
   })
     .index("by_token", ["token"])
     .index("by_user", ["userId"]),
+
+  // ===========================================
+  // PROCESSED SLACK EVENTS (deduplication)
+  // ===========================================
+
+  processedSlackEvents: defineTable({
+    eventTs: v.string(), // Slack message timestamp (unique per event)
+    eventType: v.string(), // "app_mention", "message", etc.
+    processedAt: v.number(),
+  }).index("by_event_ts", ["eventTs"]),
 });

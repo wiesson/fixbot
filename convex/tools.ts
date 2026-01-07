@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery, internalMutation } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
 
 // ===========================================
 // INTERNAL QUERIES FOR AI TOOLS
@@ -254,6 +255,7 @@ export const assignTaskByDisplayId = internalMutation({
 export const createTask = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
+    projectId: v.optional(v.id("projects")), // Optional project for TM-123 style IDs
     title: v.string(),
     description: v.string(),
     priority: v.union(
@@ -286,28 +288,60 @@ export const createTask = internalMutation({
       )
       .first();
 
-    // Get or create task counter
-    const counter = await ctx.db
-      .query("workspaceCounters")
-      .withIndex("by_workspace_and_type", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("counterType", "task_number")
-      )
-      .first();
-
+    // Determine display ID prefix and counter
+    let displayId: string;
     let taskNumber: number;
-    if (counter) {
-      taskNumber = counter.currentValue + 1;
-      await ctx.db.patch(counter._id, { currentValue: taskNumber });
-    } else {
-      taskNumber = 1;
-      await ctx.db.insert("workspaceCounters", {
-        workspaceId: args.workspaceId,
-        counterType: "task_number",
-        currentValue: 1,
-      });
-    }
 
-    const displayId = `FIX-${taskNumber}`;
+    if (args.projectId) {
+      // Project-specific counter (TM-1, TM-2, etc.)
+      const project = await ctx.db.get(args.projectId);
+      if (!project) {
+        return { success: false, error: "Project not found" };
+      }
+
+      const counter = await ctx.db
+        .query("projectCounters")
+        .withIndex("by_project_and_type", (q) =>
+          q.eq("projectId", args.projectId!).eq("counterType", "task_number")
+        )
+        .first();
+
+      if (counter) {
+        taskNumber = counter.currentValue + 1;
+        await ctx.db.patch(counter._id, { currentValue: taskNumber });
+      } else {
+        taskNumber = 1;
+        await ctx.db.insert("projectCounters", {
+          projectId: args.projectId,
+          counterType: "task_number",
+          currentValue: 1,
+        });
+      }
+
+      displayId = `${project.shortCode}-${taskNumber}`;
+    } else {
+      // Workspace-level counter (FIX-1, FIX-2, etc.)
+      const counter = await ctx.db
+        .query("workspaceCounters")
+        .withIndex("by_workspace_and_type", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("counterType", "task_number")
+        )
+        .first();
+
+      if (counter) {
+        taskNumber = counter.currentValue + 1;
+        await ctx.db.patch(counter._id, { currentValue: taskNumber });
+      } else {
+        taskNumber = 1;
+        await ctx.db.insert("workspaceCounters", {
+          workspaceId: args.workspaceId,
+          counterType: "task_number",
+          currentValue: 1,
+        });
+      }
+
+      displayId = `FIX-${taskNumber}`;
+    }
 
     // Get user if exists
     const user = await ctx.db
@@ -318,6 +352,7 @@ export const createTask = internalMutation({
     const taskId = await ctx.db.insert("tasks", {
       workspaceId: args.workspaceId,
       repositoryId: channelMapping?.repositoryId,
+      projectId: args.projectId,
       taskNumber,
       displayId,
       title: args.title,
@@ -359,5 +394,123 @@ export const createTask = internalMutation({
       priority: args.priority,
       taskType: args.taskType,
     };
+  },
+});
+
+// ===========================================
+// PROJECT MANAGEMENT
+// ===========================================
+
+export const createProject = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    shortCode: v.string(),
+    name: v.string(),
+    domain: v.optional(v.string()),
+    description: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Normalize shortCode to uppercase
+    const shortCode = args.shortCode.toUpperCase();
+
+    // Check if shortCode already exists in this workspace
+    const existing = await ctx.db
+      .query("projects")
+      .withIndex("by_workspace_and_code", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("shortCode", shortCode)
+      )
+      .first();
+
+    if (existing) {
+      return {
+        success: false,
+        error: `Project with code ${shortCode} already exists`,
+      };
+    }
+
+    const now = Date.now();
+    const projectId = await ctx.db.insert("projects", {
+      workspaceId: args.workspaceId,
+      shortCode,
+      name: args.name,
+      domain: args.domain,
+      description: args.description,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return {
+      success: true,
+      projectId,
+      shortCode,
+      name: args.name,
+      domain: args.domain,
+    };
+  },
+});
+
+export const listProjects = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+  },
+  handler: async (ctx, args) => {
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .filter((q) => q.eq(q.field("isActive"), true))
+      .collect();
+
+    return projects.map((p) => ({
+      id: p._id,
+      shortCode: p.shortCode,
+      name: p.name,
+      domain: p.domain,
+      description: p.description,
+    }));
+  },
+});
+
+export const findProjectByMatch = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    searchText: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .filter((q) => q.eq(q.field("isActive"), true))
+      .collect();
+
+    const searchLower = args.searchText.toLowerCase();
+
+    // Try to match by:
+    // 1. [CODE] or CODE: prefix
+    const codeMatch = args.searchText.match(/^\[([A-Z0-9]+)\]|^([A-Z0-9]+):/i);
+    if (codeMatch) {
+      const code = (codeMatch[1] || codeMatch[2]).toUpperCase();
+      const project = projects.find((p) => p.shortCode === code);
+      if (project) {
+        return { project: { id: project._id, shortCode: project.shortCode, name: project.name }, matchType: "shortCode" };
+      }
+    }
+
+    // 2. Domain match
+    for (const project of projects) {
+      if (project.domain && searchLower.includes(project.domain.toLowerCase())) {
+        return { project: { id: project._id, shortCode: project.shortCode, name: project.name }, matchType: "domain" };
+      }
+    }
+
+    // 3. Name match (case-insensitive)
+    for (const project of projects) {
+      if (searchLower.includes(project.name.toLowerCase())) {
+        return { project: { id: project._id, shortCode: project.shortCode, name: project.name }, matchType: "name" };
+      }
+    }
+
+    // No match found
+    return { project: null, availableProjects: projects.map((p) => ({ shortCode: p.shortCode, name: p.name })) };
   },
 });

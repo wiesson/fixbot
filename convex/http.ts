@@ -26,14 +26,15 @@ http.route({
     // const signature = request.headers.get("x-slack-signature");
     // const timestamp = request.headers.get("x-slack-request-timestamp");
 
-    // Handle event callbacks
+    // Handle event callbacks - respond immediately, process async
     if (body.type === "event_callback") {
       const event = body.event;
       const teamId = body.team_id;
 
       // Bot mention: @taskbot in a channel
       if (event.type === "app_mention") {
-        await ctx.runAction(internal.slack.handleAppMention, {
+        // Schedule async processing to avoid Slack timeout
+        await ctx.scheduler.runAfter(0, internal.slack.handleAppMention, {
           teamId,
           channelId: event.channel,
           userId: event.user,
@@ -49,7 +50,7 @@ http.route({
         event.thread_ts &&
         !event.bot_id // Ignore bot's own messages
       ) {
-        await ctx.runAction(internal.slack.handleThreadReply, {
+        await ctx.scheduler.runAfter(0, internal.slack.handleThreadReply, {
           teamId,
           channelId: event.channel,
           userId: event.user,
@@ -60,6 +61,7 @@ http.route({
       }
     }
 
+    // Return 200 immediately - processing happens async
     return new Response("OK", { status: 200 });
   }),
 });

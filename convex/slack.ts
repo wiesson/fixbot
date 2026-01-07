@@ -5,6 +5,41 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { fixbotAgent } from "./agents/taskExtractor";
+
+// ===========================================
+// EVENT DEDUPLICATION
+// ===========================================
+
+export const isEventProcessed = internalQuery({
+  args: { eventTs: v.string() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("processedSlackEvents")
+      .withIndex("by_event_ts", (q) => q.eq("eventTs", args.eventTs))
+      .first();
+    return !!existing;
+  },
+});
+
+export const markEventProcessed = internalMutation({
+  args: { eventTs: v.string(), eventType: v.string() },
+  handler: async (ctx, args) => {
+    // Double-check to prevent race conditions
+    const existing = await ctx.db
+      .query("processedSlackEvents")
+      .withIndex("by_event_ts", (q) => q.eq("eventTs", args.eventTs))
+      .first();
+    if (existing) return false;
+
+    await ctx.db.insert("processedSlackEvents", {
+      eventTs: args.eventTs,
+      eventType: args.eventType,
+      processedAt: Date.now(),
+    });
+    return true;
+  },
+});
 
 // ===========================================
 // INTERNAL QUERIES
@@ -315,10 +350,33 @@ export const handleAppMention = internalAction({
     threadTs: v.string(),
   },
   handler: async (ctx, args) => {
-    // Get workspace
-    const workspace = await ctx.runQuery(internal.slack.getWorkspaceBySlackTeam, {
-      slackTeamId: args.teamId,
+    // Deduplication: Check if we already processed this event
+    const alreadyProcessed = await ctx.runQuery(
+      internal.slack.isEventProcessed,
+      { eventTs: args.ts }
+    );
+    if (alreadyProcessed) {
+      console.log("Event already processed, skipping:", args.ts);
+      return;
+    }
+
+    // Mark as processed immediately to prevent race conditions
+    const marked = await ctx.runMutation(internal.slack.markEventProcessed, {
+      eventTs: args.ts,
+      eventType: "app_mention",
     });
+    if (!marked) {
+      console.log("Event being processed by another instance, skipping:", args.ts);
+      return;
+    }
+
+    // Get workspace
+    const workspace = await ctx.runQuery(
+      internal.slack.getWorkspaceBySlackTeam,
+      {
+        slackTeamId: args.teamId,
+      }
+    );
 
     if (!workspace) {
       console.error("No workspace found for Slack team:", args.teamId);
@@ -326,119 +384,73 @@ export const handleAppMention = internalAction({
     }
 
     // Get channel mapping for repository context
-    const channelMapping = await ctx.runQuery(internal.slack.getChannelMapping, {
-      slackChannelId: args.channelId,
-    });
+    const channelMapping = await ctx.runQuery(
+      internal.slack.getChannelMapping,
+      {
+        slackChannelId: args.channelId,
+      }
+    );
 
-    // Clean message text (remove bot mention)
-    const cleanText = args.text.replace(/<@[A-Z0-9]+>/g, "").trim();
+    // Clean message text (remove bot mention but keep user mentions for assignment)
+    const cleanText = args.text
+      .replace(new RegExp(`<@${workspace.slackBotUserId}>`, "gi"), "")
+      .trim();
 
     if (!cleanText) {
       await sendSlackMessage({
         channelId: args.channelId,
         threadTs: args.threadTs,
-        text: "Please include a description of the task. Example:\n`@fixbot Login button not working on mobile`",
+        text: "How can I help? Try:\n• `@fixbot summarize` - See task summary\n• `@fixbot mark FIX-123 as done` - Update status\n• `@fixbot assign FIX-123 to @user` - Assign task\n• Or describe a bug/task to create one",
       });
       return;
     }
 
-    // Extract task using AI (or fallback to simple extraction)
-    let extraction;
+    // Use the fixbot agent to handle everything
     try {
-      extraction = await ctx.runAction(internal.ai.extractTask, {
-        text: cleanText,
-        channelContext: channelMapping?.slackChannelName,
+      const { threadId } = await fixbotAgent.createThread(ctx, {});
+
+      // Build context for the agent with all required parameters for tools
+      const contextInfo = `Context (use these values when calling tools):
+- workspaceId: ${workspace._id}
+- slackChannelId: ${args.channelId}
+- slackUserId: ${args.userId}
+- slackMessageTs: ${args.ts}
+- slackThreadTs: ${args.threadTs}
+- channelName: ${channelMapping?.slackChannelName || "unknown"}
+
+User message: ${cleanText}
+
+Original text for task creation: ${cleanText}`;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await fixbotAgent.generateText(ctx, { threadId }, {
+        messages: [{ role: "user" as const, content: contextInfo }],
+        maxSteps: 5,
+      } as any);
+
+      // Send the agent's response directly
+      // The agent handles everything: greetings, summaries, status updates, assignments, task creation
+      const responseText =
+        result.text ||
+        "I didn't quite understand that. Could you provide more details?\n• What were you trying to do?\n• What happened instead?\n• Any error messages?";
+
+      await sendSlackMessage({
+        channelId: args.channelId,
+        threadTs: args.threadTs,
+        text: responseText,
       });
     } catch (error) {
-      console.error("AI extraction failed, using fallback:", error);
-      extraction = {
-        title: cleanText.slice(0, 100),
-        description: cleanText,
-        priority: "medium" as const,
-        taskType: "task" as const,
-        confidence: 0.5,
-      };
+      console.error("Agent error:", error);
+      await sendSlackMessage({
+        channelId: args.channelId,
+        threadTs: args.threadTs,
+        text: "Sorry, I encountered an error processing your request. Please try again.",
+      });
     }
-
-    // Create task
-    const result = await ctx.runMutation(internal.slack.createTaskFromSlack, {
-      workspaceId: workspace._id,
-      repositoryId: channelMapping?.repositoryId,
-      title: extraction.title,
-      description: extraction.description,
-      priority: extraction.priority,
-      taskType: extraction.taskType,
-      slackChannelId: args.channelId,
-      slackChannelName: channelMapping?.slackChannelName,
-      slackMessageTs: args.ts,
-      slackThreadTs: args.threadTs,
-      slackUserId: args.userId,
-      aiExtraction: {
-        extractedAt: Date.now(),
-        model: "claude-sonnet-4-20250514",
-        confidence: extraction.confidence,
-        originalText: cleanText,
-      },
-      codeContext: extraction.codeContext,
-    });
-
-    // Send confirmation to Slack
-    const priorityEmoji = {
-      critical: ":rotating_light:",
-      high: ":fire:",
-      medium: ":yellow_circle:",
-      low: ":white_circle:",
-    };
-
-    const typeEmoji = {
-      bug: ":bug:",
-      feature: ":sparkles:",
-      improvement: ":chart_with_upwards_trend:",
-      task: ":clipboard:",
-      question: ":question:",
-    };
-
-    await sendSlackMessage({
-      channelId: args.channelId,
-      threadTs: args.threadTs,
-      text: `Task created: *${result.displayId}*`,
-      blocks: [
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `${typeEmoji[extraction.taskType]} *${result.displayId}*: ${extraction.title}`,
-          },
-        },
-        {
-          type: "context",
-          elements: [
-            {
-              type: "mrkdwn",
-              text: `${priorityEmoji[extraction.priority]} ${extraction.priority} priority • ${extraction.taskType}`,
-            },
-          ],
-        },
-        {
-          type: "actions",
-          elements: [
-            {
-              type: "button",
-              text: { type: "plain_text", text: "Start" },
-              action_id: `task_status_${result.displayId}_in_progress`,
-              style: "primary",
-            },
-            {
-              type: "button",
-              text: { type: "plain_text", text: "Done" },
-              action_id: `task_status_${result.displayId}_done`,
-            },
-          ],
-        },
-      ],
-    });
   },
 });
+
+// Note: Task creation is now handled by the agent's createTask tool
 
 export const handleThreadReply = internalAction({
   args: {
@@ -480,6 +492,21 @@ export const handleThreadReply = internalAction({
 // SLACK API HELPER
 // ===========================================
 
+/**
+ * Convert Markdown formatting to Slack's mrkdwn format
+ * - **bold** → *bold*
+ * - *italic* or _italic_ stays the same (Slack uses _italic_)
+ * - Markdown bullets (* or -) → •
+ */
+function markdownToSlackMrkdwn(text: string): string {
+  return text
+    // Convert **bold** to *bold* (must be done before handling single *)
+    .replace(/\*\*(.+?)\*\*/g, "*$1*")
+    // Convert markdown bullets at start of line to Slack bullets
+    .replace(/^\*\s+/gm, "• ")
+    .replace(/^-\s+/gm, "• ");
+}
+
 async function sendSlackMessage(params: {
   channelId: string;
   threadTs?: string;
@@ -501,7 +528,7 @@ async function sendSlackMessage(params: {
     body: JSON.stringify({
       channel: params.channelId,
       thread_ts: params.threadTs,
-      text: params.text,
+      text: markdownToSlackMrkdwn(params.text),
       blocks: params.blocks,
     }),
   });
