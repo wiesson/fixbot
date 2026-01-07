@@ -27,6 +27,16 @@ export function useAuth() {
   // Still loading if: fetching token OR (have token but query pending)
   const queryLoading = sessionToken !== null && user === undefined;
 
+  // Debug logging
+  console.log("[useAuth]", {
+    sessionToken: sessionToken ? "present" : "null",
+    user: user === undefined ? "undefined" : user ? "present" : "null",
+    isLoading,
+    queryLoading,
+    finalLoading: isLoading || queryLoading,
+    isAuthenticated: !!user,
+  });
+
   return {
     user: user ?? null,
     isLoading: isLoading || queryLoading,
