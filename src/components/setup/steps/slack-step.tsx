@@ -18,10 +18,10 @@ function SlackIcon({ className }: { className?: string }) {
 
 export function SlackStep({ onSkip }: SlackStepProps) {
   const slackClientId = process.env.NEXT_PUBLIC_SLACK_CLIENT_ID;
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  const convexSiteUrl = process.env.NEXT_PUBLIC_CONVEX_SITE_URL;
 
-  // Construct Slack OAuth URL
-  const redirectUri = `${convexUrl}/slack/oauth/callback`;
+  // Construct Slack OAuth URL - uses .convex.site for HTTP endpoints
+  const redirectUri = `${convexSiteUrl}/slack/oauth/callback`;
   const scopes = [
     "app_mentions:read",
     "channels:history",
