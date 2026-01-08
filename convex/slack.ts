@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { action, internalAction, internalMutation, internalQuery, query } from "./_generated/server";
+import { api, internal } from "./_generated/api";
 import { norbotAgent } from "./agents/taskExtractor";
 
 // ===========================================
@@ -385,6 +385,17 @@ export const handleAppMention = internalAction({
       slackChannelId: args.channelId,
     });
 
+    // Fetch repository details if channel has a linked repository
+    let linkedRepository: { name: string; fullName: string } | null = null;
+    if (channelMapping?.repositoryId) {
+      const repo = await ctx.runQuery(internal.github.getRepository, {
+        repositoryId: channelMapping.repositoryId,
+      });
+      if (repo) {
+        linkedRepository = { name: repo.name, fullName: repo.fullName };
+      }
+    }
+
     // Clean message text (remove bot mention but keep user mentions for assignment)
     const cleanText = args.text
       .replace(new RegExp(`<@${workspace.slackBotUserId}>`, "gi"), "")
@@ -443,6 +454,11 @@ export const handleAppMention = internalAction({
           ? `\n- attachments: ${JSON.stringify(attachments)}`
           : "";
 
+      // Build repository context for the agent
+      const repoInfo = linkedRepository
+        ? `\n- linkedRepository: ${linkedRepository.fullName} (Tasks from this channel are associated with this GitHub repository)`
+        : "";
+
       // Build context for the agent with all required parameters for tools
       const contextInfo = `Context (use these values when calling tools):
 - workspaceId: ${workspace._id}
@@ -450,7 +466,7 @@ export const handleAppMention = internalAction({
 - slackUserId: ${args.userId}
 - slackMessageTs: ${args.ts}
 - slackThreadTs: ${args.threadTs}
-- channelName: ${channelMapping?.slackChannelName || "unknown"}${attachmentsInfo}
+- channelName: ${channelMapping?.slackChannelName || "unknown"}${repoInfo}${attachmentsInfo}
 
 User message: ${cleanText}
 
@@ -632,6 +648,50 @@ export const listBotChannels = internalAction({
     }
 
     // Fetch all channels (public and private that bot has access to)
+    const response = await fetch(
+      "https://slack.com/api/conversations.list?types=public_channel,private_channel&limit=200",
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const data = await response.json();
+    if (!data.ok) {
+      throw new Error(`Slack API error: ${data.error}`);
+    }
+
+    // Filter to channels where bot is a member
+    return data.channels
+      .filter((ch: SlackApiChannel) => ch.is_member)
+      .map((ch: SlackApiChannel) => ({
+        id: ch.id,
+        name: ch.name,
+        isPrivate: ch.is_private,
+        numMembers: ch.num_members,
+        topic: ch.topic?.value || "",
+      }));
+  },
+});
+
+// Public action to fetch available Slack channels for the UI
+export const getAvailableChannels = action({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args): Promise<SlackChannel[]> => {
+    // Verify workspace exists
+    const workspace = await ctx.runQuery(api.workspaces.get, { id: args.workspaceId });
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    // Fetch channels from Slack API
+    const token = process.env.SLACK_BOT_TOKEN;
+    if (!token) {
+      throw new Error("SLACK_BOT_TOKEN not configured");
+    }
+
     const response = await fetch(
       "https://slack.com/api/conversations.list?types=public_channel,private_channel&limit=200",
       {

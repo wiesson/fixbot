@@ -69,6 +69,18 @@ export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageP
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [selectedRepoIds, setSelectedRepoIds] = useState<Set<number>>(new Set());
 
+  // Channel state
+  const [addChannelDialogOpen, setAddChannelDialogOpen] = useState(false);
+  const [availableChannels, setAvailableChannels] = useState<Array<{
+    id: string;
+    name: string;
+    isPrivate: boolean;
+    numMembers: number;
+    topic: string;
+  }>>([]);
+  const [isLoadingChannels, setIsLoadingChannels] = useState(false);
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+
   // Queries
   const workspace = useQuery(api.workspaces.getBySlug, { slug });
   const members = useQuery(
@@ -97,9 +109,12 @@ export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageP
   const removeRepository = useMutation(api.repositories.remove);
   const connectRepos = useMutation(api.github.connectRepos);
   const updateChannelMapping = useMutation(api.channelMappings.update);
+  const createChannelMapping = useMutation(api.channelMappings.create);
+  const removeChannelMapping = useMutation(api.channelMappings.remove);
 
   // Actions
   const listUserRepos = useAction(api.github.listUserRepos);
+  const getAvailableChannels = useAction(api.slack.getAvailableChannels);
 
   // Derived state
   const isAdmin = userMembership?.role === "admin";
@@ -257,6 +272,45 @@ export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageP
     });
   };
 
+  // Channel handlers
+  const handleOpenAddChannelDialog = async () => {
+    if (!workspace) return;
+    setAddChannelDialogOpen(true);
+    setIsLoadingChannels(true);
+    setSelectedChannelId(null);
+    try {
+      const channels = await getAvailableChannels({ workspaceId: workspace._id });
+      // Filter out channels that are already configured
+      const configuredChannelIds = new Set(channelMappings?.map((m) => m.slackChannelId) ?? []);
+      const unconfiguredChannels = channels.filter((ch) => !configuredChannelIds.has(ch.id));
+      setAvailableChannels(unconfiguredChannels);
+    } catch (error) {
+      console.error("Error fetching channels:", error);
+      setAvailableChannels([]);
+    } finally {
+      setIsLoadingChannels(false);
+    }
+  };
+
+  const handleAddChannel = async () => {
+    if (!workspace || !selectedChannelId) return;
+    const channel = availableChannels.find((ch) => ch.id === selectedChannelId);
+    if (!channel) return;
+
+    await createChannelMapping({
+      workspaceId: workspace._id,
+      slackChannelId: channel.id,
+      slackChannelName: channel.name,
+    });
+
+    setAddChannelDialogOpen(false);
+    setSelectedChannelId(null);
+  };
+
+  const handleRemoveChannel = async (mappingId: Id<"channelMappings">) => {
+    await removeChannelMapping({ id: mappingId });
+  };
+
   // Loading state
   if (authLoading || !workspace) {
     return (
@@ -368,8 +422,70 @@ export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageP
 
         {/* Slack Channels Section */}
         <Card className="mb-6">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Slack Channels</CardTitle>
+            <Dialog open={addChannelDialogOpen} onOpenChange={setAddChannelDialogOpen}>
+              <DialogTrigger
+                render={<Button variant="outline" size="sm" onClick={handleOpenAddChannelDialog} />}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Channel
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add Slack Channel</DialogTitle>
+                  <DialogDescription>
+                    Select a Slack channel to configure for task tracking
+                  </DialogDescription>
+                </DialogHeader>
+                {isLoadingChannels ? (
+                  <div className="py-8 text-center text-muted-foreground">
+                    Loading channels...
+                  </div>
+                ) : availableChannels.length === 0 ? (
+                  <div className="py-8 text-center text-muted-foreground">
+                    <p>No additional channels available.</p>
+                    <p className="text-sm mt-1">
+                      Make sure the Norbot app is invited to the channels you want to use.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {availableChannels.map((channel) => (
+                      <div
+                        key={channel.id}
+                        onClick={() => setSelectedChannelId(channel.id)}
+                        className={cn(
+                          "flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors",
+                          selectedChannelId === channel.id
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:bg-muted/50"
+                        )}
+                      >
+                        <Hash className="h-4 w-4 text-muted-foreground" />
+                        <div className="flex-1">
+                          <span className="font-medium">{channel.name}</span>
+                          {channel.isPrivate && (
+                            <Lock className="h-3 w-3 inline ml-1 text-muted-foreground" />
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {channel.numMembers} members
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button
+                    onClick={handleAddChannel}
+                    disabled={!selectedChannelId}
+                  >
+                    Add Channel
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </CardHeader>
           <CardContent>
             {channelMappings && channelMappings.length > 0 ? (
@@ -383,33 +499,61 @@ export default function WorkspaceSettingsPage({ params }: WorkspaceSettingsPageP
                       <Hash className="h-4 w-4 text-muted-foreground" />
                       <span>{mapping.slackChannelName}</span>
                     </div>
-                    <Select
-                      value={mapping.repositoryId ?? "none"}
-                      onValueChange={(value) => {
-                        if (value) handleChannelRepoChange(mapping._id, value);
-                      }}
-                    >
-                      <SelectTrigger className="w-[200px]">
-                        <SelectValue>
-                          {mapping.repository?.fullName ?? "No repository"}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">No repository</SelectItem>
-                        {repositories?.map((repo) => (
-                          <SelectItem key={repo._id} value={repo._id}>
-                            {repo.fullName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex items-center gap-2">
+                      <Select
+                        value={mapping.repositoryId ?? "none"}
+                        onValueChange={(value) => {
+                          if (value) handleChannelRepoChange(mapping._id, value);
+                        }}
+                      >
+                        <SelectTrigger className="w-[200px]">
+                          <SelectValue>
+                            {mapping.repository?.fullName ?? "No repository"}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No repository</SelectItem>
+                          {repositories?.map((repo) => (
+                            <SelectItem key={repo._id} value={repo._id}>
+                              {repo.fullName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <AlertDialog>
+                        <AlertDialogTrigger
+                          render={<Button variant="ghost" size="icon-sm" />}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Remove channel?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to remove #{mapping.slackChannelName} from task tracking?
+                              This will not affect the Slack channel itself.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleRemoveChannel(mapping._id)}
+                            >
+                              Remove
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-muted-foreground text-sm">
-                No Slack channels configured yet
-              </p>
+              <div className="text-center py-8 text-muted-foreground">
+                <Hash className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>No Slack channels configured</p>
+                <p className="text-sm">Add a channel to start tracking tasks from Slack</p>
+              </div>
             )}
           </CardContent>
         </Card>
