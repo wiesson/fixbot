@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useAction } from "convex/react";
+import { useMutation, useAction, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { Id } from "@convex/_generated/dataModel";
 import { StepIndicator, Step } from "./step-indicator";
@@ -61,14 +61,27 @@ export function SetupWizard({ user }: SetupWizardProps) {
 
   const [currentStep, setCurrentStep] = useState<Step>(urlStep || "github");
   const [completedSteps, setCompletedSteps] = useState<Step[]>([]);
-  const [channels, setChannels] = useState<Channel[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
-  const [isLoadingChannels, setIsLoadingChannels] = useState(false);
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
 
   // Get workspace ID (from user's workspaces after Slack connect)
   const workspace = user.workspaces?.find((w) => w !== null);
   const workspaceId = workspace?._id;
+
+  // Realtime channel mappings from Convex (updates when bot is invited to channels)
+  const channelMappings = useQuery(
+    api.channelMappings.list,
+    workspaceId ? { workspaceId } : "skip"
+  );
+
+  // Transform channel mappings to Channel interface for ChannelsStep
+  const channels: Channel[] = (channelMappings ?? []).map((mapping) => ({
+    id: mapping.slackChannelId,
+    name: mapping.slackChannelName,
+    isPrivate: false, // We don't store this currently
+    numMembers: 0, // We don't store this currently
+  }));
+  const isLoadingChannels = channelMappings === undefined && workspaceId !== undefined;
 
   // Mutations and actions
   const updateOnboarding = useMutation(api.users.updateOnboarding);
@@ -85,17 +98,6 @@ export function SetupWizard({ user }: SetupWizardProps) {
       });
     }
   }, [slackConnected, currentStep]);
-
-  // Fetch channels when entering channels step
-  useEffect(() => {
-    if (currentStep === "channels" && workspaceId) {
-      setIsLoadingChannels(true);
-      // For now, show empty - channels will be loaded via internal action
-      // In a real implementation, we'd call an API route or use a query
-      setIsLoadingChannels(false);
-      setChannels([]); // Placeholder - channels require internal action
-    }
-  }, [currentStep, workspaceId]);
 
   // Fetch repos when entering repos step
   useEffect(() => {
@@ -206,7 +208,7 @@ export function SetupWizard({ user }: SetupWizardProps) {
         <GitHubStep githubUsername={user.githubUsername} onComplete={handleGitHubComplete} />
       )}
 
-      {currentStep === "slack" && <SlackStep onSkip={handleSlackSkip} />}
+      {currentStep === "slack" && <SlackStep userId={user._id} onSkip={handleSlackSkip} />}
 
       {currentStep === "channels" && (
         <ChannelsStep

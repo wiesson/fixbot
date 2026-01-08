@@ -60,10 +60,13 @@ export function ChannelsStep({ channels, isLoading, onComplete, onSkip }: Channe
       </CardHeader>
       <CardContent className="space-y-4">
         {channels.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            <p>No channels found.</p>
-            <p className="text-sm mt-2">
-              Invite Norbot to channels in Slack first, then refresh.
+          <div className="text-center py-8 text-muted-foreground space-y-3">
+            <p className="font-medium">No channels connected yet</p>
+            <p className="text-sm">
+              Invite <span className="font-mono bg-muted px-1 rounded">@norbot</span> to your Slack channels and they&apos;ll appear here automatically.
+            </p>
+            <p className="text-xs">
+              Channels will update in realtime as you add the bot.
             </p>
           </div>
         ) : (

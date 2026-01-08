@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { Id } from "./_generated/dataModel";
 
 const http = httpRouter();
 
@@ -75,6 +76,22 @@ http.route({
           threadTs: event.thread_ts,
         });
       }
+
+      // Bot joined a channel - auto-create channel mapping
+      if (event.type === "member_joined_channel") {
+        await ctx.scheduler.runAfter(0, internal.slack.handleBotJoinedChannel, {
+          teamId,
+          channelId: event.channel,
+        });
+      }
+
+      // Bot left a channel - deactivate channel mapping
+      if (event.type === "member_left_channel") {
+        await ctx.scheduler.runAfter(0, internal.slack.handleBotLeftChannel, {
+          teamId,
+          channelId: event.channel,
+        });
+      }
     }
 
     // Return 200 immediately - processing happens async
@@ -93,6 +110,7 @@ http.route({
     const url = new URL(request.url);
     const code = url.searchParams.get("code");
     const error = url.searchParams.get("error");
+    const stateParam = url.searchParams.get("state");
 
     if (error) {
       return new Response(`Slack OAuth error: ${error}`, { status: 400 });
@@ -100,6 +118,17 @@ http.route({
 
     if (!code) {
       return new Response("Missing code parameter", { status: 400 });
+    }
+
+    // Decode state to get userId
+    let userId: Id<"users"> | undefined;
+    if (stateParam) {
+      try {
+        const state = JSON.parse(decodeURIComponent(stateParam));
+        userId = state.userId as Id<"users">;
+      } catch {
+        console.warn("Failed to parse OAuth state parameter");
+      }
     }
 
     try {
@@ -126,12 +155,13 @@ http.route({
         });
       }
 
-      // Create or update workspace with Slack credentials
+      // Create or update workspace with Slack credentials and link to user
       await ctx.runMutation(internal.slack.createOrUpdateWorkspace, {
         slackTeamId: data.team.id,
         slackTeamName: data.team.name,
         slackBotToken: data.access_token,
         slackBotUserId: data.bot_user_id,
+        userId,
       });
 
       // Redirect to setup wizard

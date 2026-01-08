@@ -108,6 +108,7 @@ export const createOrUpdateWorkspace = internalMutation({
     slackTeamName: v.string(),
     slackBotToken: v.string(),
     slackBotUserId: v.string(),
+    userId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -124,6 +125,26 @@ export const createOrUpdateWorkspace = internalMutation({
         slackBotUserId: args.slackBotUserId,
         updatedAt: now,
       });
+
+      // Add user as member if provided and not already a member
+      if (args.userId) {
+        const existingMembership = await ctx.db
+          .query("workspaceMembers")
+          .withIndex("by_workspace_and_user", (q) =>
+            q.eq("workspaceId", existing._id).eq("userId", args.userId!)
+          )
+          .first();
+
+        if (!existingMembership) {
+          await ctx.db.insert("workspaceMembers", {
+            workspaceId: existing._id,
+            userId: args.userId,
+            role: "admin",
+            joinedAt: now,
+          });
+        }
+      }
+
       return existing._id;
     }
 
@@ -133,7 +154,7 @@ export const createOrUpdateWorkspace = internalMutation({
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
 
-    return await ctx.db.insert("workspaces", {
+    const workspaceId = await ctx.db.insert("workspaces", {
       name: args.slackTeamName,
       slug: `${slug}-${args.slackTeamId.slice(-4)}`,
       slackTeamId: args.slackTeamId,
@@ -146,6 +167,18 @@ export const createOrUpdateWorkspace = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
+
+    // Add user as admin member if provided
+    if (args.userId) {
+      await ctx.db.insert("workspaceMembers", {
+        workspaceId,
+        userId: args.userId,
+        role: "admin",
+        joinedAt: now,
+      });
+    }
+
+    return workspaceId;
   },
 });
 
@@ -647,6 +680,7 @@ async function sendSlackMessage(params: {
       thread_ts: params.threadTs,
       text: markdownToSlackMrkdwn(params.text),
       blocks: params.blocks,
+      icon_emoji: ":robot_face:",
     }),
   });
 
@@ -795,6 +829,170 @@ export const configureChannels = internalMutation({
     }
 
     return created;
+  },
+});
+
+// ===========================================
+// BOT CHANNEL JOIN/LEAVE HANDLERS
+// ===========================================
+
+export const handleBotJoinedChannel = internalAction({
+  args: {
+    teamId: v.string(),
+    channelId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Get workspace by Slack team ID
+    const workspace = await ctx.runQuery(internal.slack.getWorkspaceBySlackTeam, {
+      slackTeamId: args.teamId,
+    });
+
+    if (!workspace) {
+      console.error("No workspace found for Slack team:", args.teamId);
+      return;
+    }
+
+    // Check if channel mapping already exists
+    const existingMapping = await ctx.runQuery(internal.slack.getChannelMapping, {
+      workspaceId: workspace._id,
+      slackChannelId: args.channelId,
+    });
+
+    if (existingMapping) {
+      // If it exists but is inactive, reactivate it
+      if (!existingMapping.isActive) {
+        await ctx.runMutation(internal.slack.updateChannelMappingStatus, {
+          channelMappingId: existingMapping._id,
+          isActive: true,
+        });
+      }
+      return;
+    }
+
+    // Fetch channel info from Slack API
+    const channelInfo = await fetchChannelInfo(
+      workspace.slackBotToken ?? "",
+      args.channelId
+    );
+
+    if (!channelInfo) {
+      console.error("Failed to fetch channel info for:", args.channelId);
+      return;
+    }
+
+    // Create new channel mapping
+    await ctx.runMutation(internal.slack.createChannelMapping, {
+      workspaceId: workspace._id,
+      slackChannelId: args.channelId,
+      slackChannelName: channelInfo.name,
+    });
+
+    console.log(`Channel mapping created for ${channelInfo.name} in workspace ${workspace.name}`);
+  },
+});
+
+export const handleBotLeftChannel = internalAction({
+  args: {
+    teamId: v.string(),
+    channelId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Get workspace by Slack team ID
+    const workspace = await ctx.runQuery(internal.slack.getWorkspaceBySlackTeam, {
+      slackTeamId: args.teamId,
+    });
+
+    if (!workspace) {
+      console.error("No workspace found for Slack team:", args.teamId);
+      return;
+    }
+
+    // Find channel mapping
+    const channelMapping = await ctx.runQuery(internal.slack.getChannelMapping, {
+      workspaceId: workspace._id,
+      slackChannelId: args.channelId,
+    });
+
+    if (channelMapping) {
+      // Mark as inactive instead of deleting
+      await ctx.runMutation(internal.slack.updateChannelMappingStatus, {
+        channelMappingId: channelMapping._id,
+        isActive: false,
+      });
+      console.log(`Channel mapping deactivated for channel ${args.channelId}`);
+    }
+  },
+});
+
+// Helper function to fetch channel info from Slack
+async function fetchChannelInfo(
+  token: string,
+  channelId: string
+): Promise<{ name: string; isPrivate: boolean } | null> {
+  try {
+    const response = await fetch(
+      `https://slack.com/api/conversations.info?channel=${channelId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const data = await response.json();
+    if (!data.ok) {
+      console.error("Slack API error:", data.error);
+      return null;
+    }
+
+    return {
+      name: data.channel.name,
+      isPrivate: data.channel.is_private,
+    };
+  } catch (error) {
+    console.error("Failed to fetch channel info:", error);
+    return null;
+  }
+}
+
+// Internal mutation to create channel mapping
+export const createChannelMapping = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    slackChannelId: v.string(),
+    slackChannelName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    return await ctx.db.insert("channelMappings", {
+      workspaceId: args.workspaceId,
+      slackChannelId: args.slackChannelId,
+      slackChannelName: args.slackChannelName,
+      // repositoryId is not set - user will configure this later
+      settings: {
+        autoExtractTasks: true,
+        mentionRequired: true,
+      },
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+// Internal mutation to update channel mapping status
+export const updateChannelMappingStatus = internalMutation({
+  args: {
+    channelMappingId: v.id("channelMappings"),
+    isActive: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.channelMappingId, {
+      isActive: args.isActive,
+      updatedAt: Date.now(),
+    });
   },
 });
 

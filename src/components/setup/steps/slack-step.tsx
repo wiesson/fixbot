@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { cn } from "@/lib/utils";
 
 interface SlackStepProps {
+  userId: string;
   onSkip: () => void;
 }
 
@@ -16,7 +17,7 @@ function SlackIcon({ className }: { className?: string }) {
   );
 }
 
-export function SlackStep({ onSkip }: SlackStepProps) {
+export function SlackStep({ userId, onSkip }: SlackStepProps) {
   const slackClientId = process.env.NEXT_PUBLIC_SLACK_CLIENT_ID;
   const convexSiteUrl = process.env.NEXT_PUBLIC_CONVEX_SITE_URL;
 
@@ -32,7 +33,9 @@ export function SlackStep({ onSkip }: SlackStepProps) {
     "users:read",
   ].join(",");
 
-  const slackOAuthUrl = `https://slack.com/oauth/v2/authorize?client_id=${slackClientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  // Pass userId in state to link user to workspace after OAuth
+  const state = encodeURIComponent(JSON.stringify({ userId }));
+  const slackOAuthUrl = `https://slack.com/oauth/v2/authorize?client_id=${slackClientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
 
   return (
     <Card className="w-full max-w-md">

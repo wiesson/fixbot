@@ -27,7 +27,11 @@ oauth_config:
     bot:
       - app_mentions:read
       - chat:write
+      - chat:write.customize
       - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
       - users:read
 
 settings:
@@ -35,6 +39,8 @@ settings:
     request_url: https://YOUR_CONVEX_URL.convex.site/slack/events
     bot_events:
       - app_mention
+      - member_joined_channel
+      - member_left_channel
       - message.channels
   interactivity:
     is_enabled: true
