@@ -1,27 +1,20 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { api } from "@convex/_generated/api";
-import { useEffect, useState } from "react";
 
 export function useAuth() {
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // Fetch session token using TanStack Query (cached, no re-fetch on navigation)
+  const { data: sessionData, isLoading: sessionLoading } = useTanstackQuery({
+    queryKey: ["session"],
+    queryFn: () => fetch("/api/auth/session").then((res) => res.json()),
+    staleTime: Infinity, // Session doesn't change during session
+    retry: false,
+  });
+  const sessionToken = sessionData?.token ?? null;
 
-  useEffect(() => {
-    // Get session token from cookie via API
-    fetch("/api/auth/session")
-      .then((res) => res.json())
-      .then((data) => {
-        setSessionToken(data.token);
-        setIsLoading(false);
-      })
-      .catch(() => {
-        setIsLoading(false);
-      });
-  }, []);
-
-  // Skip query until we have a token to avoid race condition
+  // Skip Convex query until we have a token to avoid race condition
   const user = useQuery(api.users.me, sessionToken ? { sessionToken } : "skip");
 
   // Still loading if: fetching token OR (have token but query pending)
@@ -29,7 +22,7 @@ export function useAuth() {
 
   return {
     user: user ?? null,
-    isLoading: isLoading || queryLoading,
+    isLoading: sessionLoading || queryLoading,
     isAuthenticated: !!user,
   };
 }
