@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useAction, useQuery } from "convex/react";
+import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { api } from "@convex/_generated/api";
 import { Id } from "@convex/_generated/dataModel";
 import { StepIndicator, Step } from "./step-indicator";
@@ -61,8 +62,6 @@ export function SetupWizard({ user }: SetupWizardProps) {
 
   const [currentStep, setCurrentStep] = useState<Step>(urlStep || "github");
   const [completedSteps, setCompletedSteps] = useState<Step[]>([]);
-  const [repos, setRepos] = useState<Repo[]>([]);
-  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
 
   // Get workspace ID (from user's workspaces after Slack connect)
   const workspace = user.workspaces?.find((w) => w !== null);
@@ -89,6 +88,14 @@ export function SetupWizard({ user }: SetupWizardProps) {
   const listUserRepos = useAction(api.github.listUserRepos);
   const connectRepos = useMutation(api.github.connectRepos);
 
+  // Fetch repos using TanStack Query - only when on repos step
+  const { data: repos = [], isLoading: isLoadingRepos } = useTanstackQuery({
+    queryKey: ["userRepos", user._id],
+    queryFn: () => listUserRepos({ userId: user._id }),
+    enabled: currentStep === "repos",
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+
   // Handle Slack OAuth return
   useEffect(() => {
     if (slackConnected && currentStep === "channels") {
@@ -98,23 +105,6 @@ export function SetupWizard({ user }: SetupWizardProps) {
       });
     }
   }, [slackConnected, currentStep]);
-
-  // Fetch repos when entering repos step
-  useEffect(() => {
-    if (currentStep === "repos" && !repos.length) {
-      setIsLoadingRepos(true);
-      listUserRepos({ userId: user._id })
-        .then((fetchedRepos) => {
-          setRepos(fetchedRepos);
-        })
-        .catch((error) => {
-          console.error("Error fetching repos:", error);
-        })
-        .finally(() => {
-          setIsLoadingRepos(false);
-        });
-    }
-  }, [currentStep, user._id, listUserRepos, repos.length]);
 
   const goToStep = useCallback(
     (step: Step) => {
