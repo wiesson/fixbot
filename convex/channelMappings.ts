@@ -59,6 +59,7 @@ export const create = mutation({
         autoExtractTasks: v.boolean(),
         mentionRequired: v.boolean(),
         defaultPriority: v.optional(v.string()),
+        strictProjectMode: v.optional(v.boolean()),
       })
     ),
   },
@@ -84,6 +85,7 @@ export const create = mutation({
       settings: args.settings ?? {
         autoExtractTasks: true,
         mentionRequired: true,
+        strictProjectMode: false,
       },
       isActive: true,
       createdAt: now,
@@ -102,6 +104,7 @@ export const update = mutation({
         autoExtractTasks: v.boolean(),
         mentionRequired: v.boolean(),
         defaultPriority: v.optional(v.string()),
+        strictProjectMode: v.optional(v.boolean()),
       })
     ),
   },

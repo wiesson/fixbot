@@ -541,17 +541,32 @@ export const handleAppMention = internalAction({
           ).join("\n")}`
         : "\n\nNo projects configured yet. Tasks will use generic FIX-xxx IDs.";
 
-      const channelProjectInfo = channelDefaultProject
-        ? `\n- channelDefaultProject: ${channelDefaultProject.name} (${channelDefaultProject.shortCode}) - Use this project for tasks from this channel`
-        : "\n- channelDefaultProject: none - Use keyword matching or ask which project";
+      let channelProjectInfo = "";
+      if (channelDefaultProject) {
+        const isStrict = channelMapping?.settings?.strictProjectMode;
+        const strictInstruction = isStrict
+          ? " - STRICT MODE: You MUST use this project. Ignore any other project names mentioned in the text."
+          : " - Use this project for tasks from this channel unless another is explicitly mentioned";
+        
+        channelProjectInfo = `\n- channelDefaultProject: ${channelDefaultProject.name} (${channelDefaultProject.shortCode})${strictInstruction}`;
+      } else {
+        channelProjectInfo = "\n- channelDefaultProject: none - Use keyword matching or ask which project";
+      }
+
+      // Build source context for the agent
+      const sourceContext = {
+        type: "slack",
+        workspaceId: workspace._id,
+        channelId: args.channelId,
+        channelName: channelMapping?.slackChannelName,
+        userId: args.userId,
+        messageTs: args.ts,
+        threadTs: args.threadTs,
+      };
 
       // Build context for the agent with all required parameters for tools
       const contextInfo = `Context (use these values when calling tools):
-- workspaceId: ${workspace._id}
-- slackChannelId: ${args.channelId}
-- slackUserId: ${args.userId}
-- slackMessageTs: ${args.ts}
-- slackThreadTs: ${args.threadTs}
+- source: ${JSON.stringify(sourceContext)}
 - channelName: ${channelMapping?.slackChannelName || "unknown"}${channelProjectInfo}${repoInfo}${attachmentsInfo}${projectsInfo}${threadContext}
 
 User message: ${cleanText}
@@ -652,13 +667,20 @@ export const handleThreadReply = internalAction({
           { workspaceId: workspace._id, slackChannelId: args.channelId }
         );
 
+        // Build source context for the agent
+        const sourceContext = {
+          type: "slack",
+          workspaceId: workspace._id,
+          channelId: args.channelId,
+          channelName: channelMapping?.slackChannelName,
+          userId: args.userId,
+          messageTs: args.ts,
+          threadTs: args.threadTs,
+        };
+
         // Build context for follow-up
         const contextInfo = `Context (use these values when calling tools):
-- workspaceId: ${workspace._id}
-- slackChannelId: ${args.channelId}
-- slackUserId: ${args.userId}
-- slackMessageTs: ${args.ts}
-- slackThreadTs: ${args.threadTs}
+- source: ${JSON.stringify(sourceContext)}
 - channelName: ${channelMapping?.slackChannelName || "unknown"}
 
 User follow-up message: ${args.text}`;

@@ -136,6 +136,7 @@ export default defineSchema({
       autoExtractTasks: v.boolean(),
       mentionRequired: v.boolean(),
       defaultPriority: v.optional(v.string()),
+      strictProjectMode: v.optional(v.boolean()),
     }),
 
     isActive: v.boolean(),
